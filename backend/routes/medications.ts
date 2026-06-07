@@ -89,7 +89,74 @@ router.put('/:id', (req: any, res) => {
 
 router.delete('/:id', (req: any, res) => {
   db.prepare('DELETE FROM medications WHERE id = ? AND user_id = ?').run(req.params.id, req.userId)
+  db.prepare('DELETE FROM medication_logs WHERE medication_id = ? AND user_id = ?').run(req.params.id, req.userId)
   res.json({ success: true })
+})
+
+router.post('/:id/log', (req: any, res) => {
+  const med: any = db.prepare('SELECT * FROM medications WHERE id = ? AND user_id = ?').get(req.params.id, req.userId)
+  if (!med) return res.status(404).json({ error: '用药不存在' })
+
+  const result = db.prepare(`
+    INSERT INTO medication_logs (user_id, medication_id, medication_name, dosage, taken_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(req.userId, med.id, med.name, med.dosage)
+
+  const log: any = db.prepare('SELECT * FROM medication_logs WHERE id = ?').get(result.lastInsertRowid)
+  res.json({
+    id: log.id,
+    userId: log.user_id,
+    medicationId: log.medication_id,
+    medicationName: log.medication_name,
+    dosage: log.dosage,
+    takenAt: log.taken_at
+  })
+})
+
+router.get('/logs', (req: any, res) => {
+  const { date, medicationId } = req.query
+  let query = 'SELECT * FROM medication_logs WHERE user_id = ?'
+  const params: any[] = [req.userId]
+
+  if (date) {
+    query += ' AND DATE(taken_at) = ?'
+    params.push(date)
+  }
+  if (medicationId) {
+    query += ' AND medication_id = ?'
+    params.push(medicationId)
+  }
+
+  query += ' ORDER BY taken_at DESC'
+
+  const logs = db.prepare(query).all(...params)
+  res.json(logs.map((l: any) => ({
+    id: l.id,
+    userId: l.user_id,
+    medicationId: l.medication_id,
+    medicationName: l.medication_name,
+    dosage: l.dosage,
+    takenAt: l.taken_at
+  })))
+})
+
+router.delete('/logs/:id', (req: any, res) => {
+  db.prepare('DELETE FROM medication_logs WHERE id = ? AND user_id = ?').run(req.params.id, req.userId)
+  res.json({ success: true })
+})
+
+router.get('/today-status', (req: any, res) => {
+  const today = new Date().toISOString().split('T')[0]
+  const logs = db.prepare(`
+    SELECT medication_id, taken_at FROM medication_logs
+    WHERE user_id = ? AND DATE(taken_at) = ?
+  `).all(req.userId, today)
+
+  const status: Record<number, string> = {}
+  logs.forEach((log: any) => {
+    status[log.medication_id] = log.taken_at
+  })
+  res.json(status)
 })
 
 export default router

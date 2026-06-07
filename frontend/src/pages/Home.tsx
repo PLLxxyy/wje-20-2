@@ -3,29 +3,63 @@ import { Link } from 'react-router-dom'
 import api from '@/utils/api'
 import TrendChart from '@/components/TrendChart'
 import AbnormalBadge from '@/components/AbnormalBadge'
-import { HealthRecord, HealthSummary } from '@/types'
-import { FileText, AlertTriangle, Clock, TrendingUp } from 'lucide-react'
+import { HealthRecord, HealthSummary, Medication, MedicationLog } from '@/types'
+import { FileText, AlertTriangle, Clock, TrendingUp, Check, Undo2 } from 'lucide-react'
 
 export default function Home() {
   const [summary, setSummary] = useState<HealthSummary | null>(null)
   const [records, setRecords] = useState<HealthRecord[]>([])
+  const [medications, setMedications] = useState<Medication[]>([])
+  const [todayStatus, setTodayStatus] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(true)
+  const [loggingId, setLoggingId] = useState<number | null>(null)
+
+  const fetchData = async () => {
+    try {
+      const [summaryRes, recordsRes, medsRes, statusRes] = await Promise.all([
+        api.get('/records/summary'),
+        api.get('/records'),
+        api.get('/medications'),
+        api.get('/medications/today-status')
+      ])
+      setSummary(summaryRes.data)
+      setRecords(recordsRes.data)
+      setMedications(medsRes.data.filter((m: Medication) => m.active))
+      setTodayStatus(statusRes.data)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [summaryRes, recordsRes] = await Promise.all([
-          api.get('/records/summary'),
-          api.get('/records')
-        ])
-        setSummary(summaryRes.data)
-        setRecords(recordsRes.data)
-      } finally {
-        setLoading(false)
-      }
-    }
     fetchData()
   }, [])
+
+  const handleTake = async (medId: number) => {
+    setLoggingId(medId)
+    try {
+      await api.post(`/medications/${medId}/log`)
+      const statusRes = await api.get('/medications/today-status')
+      setTodayStatus(statusRes.data)
+    } finally {
+      setLoggingId(null)
+    }
+  }
+
+  const handleUndo = async (medId: number) => {
+    const takenAt = todayStatus[medId]
+    if (!takenAt) return
+
+    const logsRes = await api.get('/medications/logs', {
+      params: { medicationId: medId, date: new Date().toISOString().split('T')[0] }
+    })
+    const todayLog = logsRes.data.find((l: MedicationLog) => l.takenAt === takenAt)
+    if (todayLog) {
+      await api.delete(`/medications/logs/${todayLog.id}`)
+      const statusRes = await api.get('/medications/today-status')
+      setTodayStatus(statusRes.data)
+    }
+  }
 
   if (loading) return <div className="text-center py-20 text-gray-500">加载中...</div>
 
@@ -172,7 +206,53 @@ export default function Home() {
           </h2>
           <Link to="/medications" className="text-sm text-red-500 hover:text-red-600">管理用药</Link>
         </div>
-        <p className="text-gray-500 text-sm">请在用药提醒页面设置您的用药计划</p>
+
+        {medications.length === 0 ? (
+          <p className="text-gray-500 text-sm">请在用药提醒页面设置您的用药计划</p>
+        ) : (
+          <div className="space-y-3">
+            {medications.map(med => {
+              const takenAt = todayStatus[med.id]
+              return (
+                <div key={med.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${takenAt ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                      {takenAt ? <Check className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-gray-800">{med.name}</h3>
+                      <p className="text-sm text-gray-500">{med.dosage} · {med.time}</p>
+                      {takenAt && (
+                        <p className="text-xs text-green-600 mt-1">
+                          已服于 {new Date(takenAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {takenAt ? (
+                    <button
+                      onClick={() => handleUndo(med.id)}
+                      disabled={loggingId === med.id}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      <Undo2 className="w-4 h-4" />
+                      撤销
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleTake(med.id)}
+                      disabled={loggingId === med.id}
+                      className="flex items-center gap-1 px-4 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 transition-colors"
+                    >
+                      <Check className="w-4 h-4" />
+                      {loggingId === med.id ? '记录中...' : '已服'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

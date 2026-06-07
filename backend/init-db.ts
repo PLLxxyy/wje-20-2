@@ -50,6 +50,20 @@ db.exec(`
   )
 `)
 
+// Medication logs table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS medication_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    medication_id INTEGER NOT NULL,
+    medication_name TEXT NOT NULL,
+    dosage TEXT,
+    taken_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (medication_id) REFERENCES medications(id)
+  )
+`)
+
 // Family members table
 db.exec(`
   CREATE TABLE IF NOT EXISTS family_members (

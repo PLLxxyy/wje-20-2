@@ -33,6 +33,16 @@ export interface Medication {
   endDate?: string
   notes?: string
   active: boolean
+  createdAt: string
+}
+
+export interface MedicationLog {
+  id: number
+  userId: number
+  medicationId: number
+  medicationName: string
+  dosage: string
+  takenAt: string
 }
 
 export interface FamilyMember {
